@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FloodGuard EWS — Live Dashboard</title>
+
+<!-- Tailwind CSS (JIT compiler via CDN — for production, build a static CSS file) -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<!-- Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<script>
+  /* Tailwind runtime configuration — must be declared AFTER the CDN script */
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif'],
+          mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+        },
+        colors: {
+          ink:    '#05080f',
+          panel:  '#0b1220',
+          panel2: '#111a2c',
+          hair:   '#1e293b',
+        },
+        boxShadow: {
+          card: '0 1px 0 0 rgba(255,255,255,0.04) inset, 0 20px 40px -20px rgba(0,0,0,0.9)',
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  /* ---------- Base ---------- */
+  html { scroll-behavior: smooth; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(56,189,248,0.10), transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, rgba(168,85,247,0.08), transparent 55%),
+      #05080f;
+    min-height: 100vh;
+  }
+
+  /* ---------- Animated grid backdrop ---------- */
+  .grid-bg {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image:
+      linear-gradient(to right, rgba(148,163,184,0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(148,163,184,0.06) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+
+  /* ---------- Hero number ---------- */
+  .hero-number {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.045em;
+    text-shadow: 0 0 60px rgba(56,189,248,0.25);
+    transition: color 400ms ease;
+  }
+
+  /* ---------- Status pulse ring ---------- */
+  @keyframes pulseRing {
+    0%   { transform: scale(1);   opacity: 0.85; }
+    70%  { transform: scale(2.6); opacity: 0; }
+    100% { transform: scale(2.6); opacity: 0; }
+  }
+  .pulse-ring {
+    animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* ---------- Level meter ---------- */
+  .meter-fill {
+    transition: width 700ms cubic-bezier(0.22, 1, 0.36, 1),
+                background-color 400ms ease;
+  }
+
+  /* ---------- Custom scrollbar ---------- */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+  /* ---------- Fade-in on load ---------- */
+  @keyframes riseIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .rise-in { animation: riseIn 600ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .delay-1 { animation-delay: 80ms; }
+  .delay-2 { animation-delay: 160ms; }
+  .delay-3 { animation-delay: 240ms; }
+</style>
+</head>
+
+<body class="font-sans text-slate-200 antialiased selection:bg-sky-500/30">
+<div class="grid-bg"></div>
+
+<!-- =========================================================================
+     HEADER — System Health
+     ========================================================================= -->
+<header class="sticky top-0 z-30 border-b border-hair/70 bg-ink/80 backdrop-blur-xl">
+  <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6 lg:px-8">
+
+    <!-- Brand -->
+    <div class="flex items-center gap-3">
+      <div class="relative grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 shadow-lg shadow-sky-500/20">
+        <svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 15c1.5 0 1.5-1.5 3-1.5s1.5 1.5 3 1.5 1.5-1.5 3-1.5 1.5 1.5 3 1.5 1.5-1.5 3-1.5 1.5 1.5 3 1.5"/>
+          <path d="M2 19c1.5 0 1.5-1.5 3-1.5s1.5 1.5 3 1.5 1.5-1.5 3-1.5 1.5 1.5 3 1.5 1.5-1.5 3-1.5 1.5 1.5 3 1.5"/>
+          <path d="M12 2v8"/><circle cx="12" cy="4" r="1.6"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-[15px] font-bold leading-tight tracking-tight text-white">FloodGuard <span class="text-sky-400">EWS</span></h1>
+        <p class="font-mono text-[11px] leading-tight text-slate-500">NODE_01 · Ultrasonic Stage Sensor</p>
+      </div>
+    </div>
+
+    <!-- Connection + clock -->
+    <div class="flex items-center gap-2 sm:gap-3">
+
+      <!-- Connection pill -->
+      <div id="connPill"
+           class="flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-800/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 transition-colors duration-300">
+        <span class="relative flex h-2 w-2">
+          <span id="connPing" class="absolute inline-flex h-full w-full rounded-full bg-slate-500 opacity-0"></span>
+          <span id="connDot" class="relative inline-flex h-2 w-2 rounded-full bg-slate-500"></span>
+        </span>
+        <span id="connText">Connecting</span>
+      </div>
+
+      <!-- Live clock -->
+      <div class="hidden items-center gap-2 rounded-full border border-hair bg-panel/60 px-3 py-1.5 sm:flex">
+        <svg class="h-3.5 w-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+        </svg>
+        <span id="clock" class="font-mono text-[11px] text-slate-400">--:--:--</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- =========================================================================
+     MAIN
+     ========================================================================= -->
+<main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+
+  <!-- -------------------- ROW 1: Hero + Side Stats -------------------- -->
+  <section class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+
+    <!-- ============ HERO METRIC CARD ============ -->
+    <div class="rise-in relative overflow-hidden rounded-2xl border border-hair bg-gradient-to-br from-panel2 via-panel to-ink p-6 shadow-card sm:p-8 lg:col-span-2">
+
+      <!-- decorative glow -->
+      <div id="heroGlow"
+           class="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full opacity-30 blur-3xl transition-colors duration-700"
+           style="background: radial-gradient(circle, #22c55e 0%, transparent 70%);"></div>
+
+      <div class="relative flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+
+        <!-- Label + big number -->
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Current Water Level</p>
+          </div>
+
+          <div class="mt-3 flex items-end gap-2">
+            <span id="levelValue" class="hero-number text-6xl font-extrabold text-white sm:text-7xl lg:text-8xl">--.-</span>
+            <span class="mb-2 font-mono text-lg font-medium text-slate-500 sm:mb-3 sm:text-xl">cm</span>
+          </div>
+
+          <!-- Secondary metrics -->
+          <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[12px] text-slate-500">
+            <span class="flex items-center gap-1.5">
+              <svg class="h-3.5 w-3.5 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/>
+              </svg>
+              <span id="batteryInline">--.-- V</span>
+            </span>
+            <span class="flex items-center gap-1.5">
+              <svg class="h-3.5 w-3.5 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+              </svg>
+              <span id="lastUpdate">Awaiting first reading…</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Status badge -->
+        <div class="flex flex-col items-start gap-2 sm:items-end">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Alert Status</p>
+          <div id="statusBadge"
+               class="flex items-center gap-2.5 rounded-full border border-slate-700 bg-slate-800/60 px-4 py-2 transition-all duration-500">
+            <span class="relative flex h-2.5 w-2.5">
+              <span id="statusPing" class="pulse-ring absolute inline-flex h-full w-full rounded-full bg-slate-500"></span>
+              <span id="statusDot" class="relative inline-flex h-2.5 w-2.5 rounded-full bg-slate-500"></span>
+            </span>
+            <span id="statusLabel" class="text-sm font-bold uppercase tracking-[0.14em] text-slate-400">Offline</span>
+          </div>
+          <p class="font-mono text-[10px] text-slate-600">WARN ≥ 100 cm · CRIT &gt; 150 cm</p>
+        </div>
+      </div>
+
+      <!-- Level meter -->
+      <div class="relative mt-7">
+        <div class="h-3 w-full overflow-hidden rounded-full bg-slate-800/80 ring-1 ring-inset ring-white/5">
+          <div id="meterFill" class="meter-fill h-full w-0 rounded-full bg-slate-600"></div>
+        </div>
+
+        <!-- Threshold ticks -->
+        <div class="relative mt-2 h-4 font-mono text-[10px] text-slate-600">
+          <span class="absolute left-0">0</span>
+          <span class="absolute -translate-x-1/2 text-amber-500/70" style="left:50%">100</span>
+          <span class="absolute -translate-x-1/2 text-rose-500/70" style="left:75%">150</span>
+          <span class="absolute right-0">200 cm</span>
+        </div>
+
+        <!-- Threshold markers on the bar -->
+        <div class="pointer-events-none absolute inset-x-0 top-0 h-3">
+          <div class="absolute top-0 h-3 w-px bg-amber-400/50" style="left:50%"></div>
+          <div class="absolute top-0 h-3 w-px bg-rose-500/60" style="left:75%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SIDE STAT CARDS ============ -->
+    <div class="rise-in delay-1 flex flex-col gap-5">
+
+      <!-- Battery -->
+      <div class="rounded-2xl border border-hair bg-panel/70 p-5 shadow-card backdrop-blur">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Battery</p>
+          <svg class="h-4 w-4 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/>
+          </svg>
+        </div>
+        <div class="mt-2 flex items-end gap-2">
+          <span id="batteryValue" class="font-mono text-3xl font-bold text-white">--.--</span>
+          <span class="mb-1 text-sm text-slate-500">V</span>
+        </div>
+        <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+          <div id="batteryBar" class="h-full w-0 rounded-full bg-emerald-500 transition-all duration-700"></div>
+        </div>
+      </div>
+
+      <!-- 24h High / Low -->
+      <div class="grid grid-cols-2 gap-5">
+        <div class="rounded-2xl border border-hair bg-panel/70 p-5 shadow-card backdrop-blur">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">24h High</p>
+          <p class="mt-2 font-mono text-2xl font-bold text-rose-400"><span id="statHigh">--</span><span class="ml-1 text-xs font-normal text-slate-500">cm</span></p>
+        </div>
+        <div class="rounded-2xl border border-hair bg-panel/70 p-5 shadow-card backdrop-blur">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">24h Low</p>
+          <p class="mt-2 font-mono text-2xl font-bold text-emerald-400"><span id="statLow">--</span><span class="ml-1 text-xs font-normal text-slate-500">cm</span></p>
+        </div>
+      </div>
+
+      <!-- Data points -->
+      <div class="rounded-2xl border border-hair bg-panel/70 p-5 shadow-card backdrop-blur">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Telemetry Samples</p>
+          <span class="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-sky-400">24h</span>
+        </div>
+        <div class="mt-2 flex items-end gap-2">
+          <span id="statPoints" class="font-mono text-3xl font-bold text-white">--</span>
+          <span class="mb-1 text-xs text-slate-500">points</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- -------------------- ROW 2: Analytics Chart -------------------- -->
+  <section class="rise-in delay-2 mt-5 rounded-2xl border border-hair bg-panel/70 p-5 shadow-card backdrop-blur sm:p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-semibold tracking-tight text-white">24-Hour Stage Trend</h2>
+        <p class="mt-0.5 text-[12px] text-slate-500">5-minute bucket averages · live append every 5 s</p>
+      </div>
+      <div class="flex items-center gap-4 font-mono text-[10px] uppercase tracking-wider text-slate-500">
+        <span class="flex items-center gap-1.5"><span class="h-0.5 w-5 rounded bg-sky-400"></span>Level</span>
+        <span class="flex items-center gap-1.5"><span class="h-0.5 w-5 rounded bg-amber-400/70" style="background-image:repeating-linear-gradient(90deg,#fbbf24 0 3px,transparent 3px 6px)"></span>Warning</span>
+        <span class="flex items-center gap-1.5"><span class="h-0.5 w-5 rounded bg-rose-500/70" style="background-image:repeating-linear-gradient(90deg,#f43f5e 0 3px,transparent 3px 6px)"></span>Critical</span>
+      </div>
+    </div>
+
+    <div class="relative mt-5 h-[300px] w-full sm:h-[360px]">
+      <canvas id="trendChart"></canvas>
+    </div>
+  </section>
+
+  <!-- -------------------- Footer -------------------- -->
+  <footer class="mt-6 flex flex-col items-center justify-between gap-2 border-t border-hair/60 pt-5 text-[11px] text-slate-600 sm:flex-row">
+    <p>FloodGuard EWS · MVP Build · Data refreshes every 5 seconds</p>
+    <p class="font-mono">API: <span id="apiBaseLabel">—</span></p>
+  </footer>
+</main>
+
+<!-- =========================================================================
+     FRONTEND APPLICATION LOGIC
+     ========================================================================= -->
+<script>
+'use strict';
+
+/* ============================================================================
+ * 1. CONFIGURATION
+ * ==========================================================================*/
+
+const CONFIG = {
+  // Override at runtime without editing the file: localStorage.setItem('EWS_API_BASE', 'https://xyz.ngrok-free.app')
+  API_BASE: (localStorage.getItem('EWS_API_BASE') || 'http://localhost:3000').replace(/\/+$/, ''),
+  DEVICE_ID: 'NODE_01',
+  POLL_INTERVAL_MS: 5000,
+  REQUEST_TIMEOUT_MS: 8000,
+  MAX_CHART_POINTS: 720,          // hard cap on live-appended points
+  THRESHOLD_WARNING: 100,         // cm
+  THRESHOLD_CRITICAL: 150,        // cm
+  METER_MAX_CM: 200,              // full-scale of the hero meter
+};
+
+/* ============================================================================
+ * 2. STATUS DESIGN TOKENS
+ * ==========================================================================*/
+
+const STATUS_META = {
+  SAFE: {
+    label: 'Safe',
+    dot: 'bg-emerald-400',
+    ping: 'bg-emerald-400',
+    badge: 'border-emerald-500/40 bg-emerald-500/10',
+    text: 'text-emerald-300',
+    accent: '#34d399',
+    fill: 'bg-emerald-500',
+    glow: 'rgba(52, 211, 153, 0.35)',
+  },
+  WARNING: {
+    label: 'Warning',
+    dot: 'bg-amber-400',
+    ping: 'bg-amber-400',
+    badge: 'border-amber-500/40 bg-amber-500/10',
+    text: 'text-amber-300',
+    accent: '#fbbf24',
+    fill: 'bg-amber-500',
+    glow: 'rgba(251, 191, 36, 0.35)',
+  },
+  CRITICAL: {
+    label: 'Critical',
+    dot: 'bg-rose-500',
+    ping: 'bg-rose-500',
+    badge: 'border-rose-500/50 bg-rose-500/15',
+    text: 'text-rose-300',
+    accent: '#f43f5e',
+    fill: 'bg-rose-500',
+    glow: 'rgba(244, 63, 94, 0.45)',
+  },
+  OFFLINE: {
+    label: 'Offline',
+    dot: 'bg-slate-500',
+    ping: 'bg-slate-500',
+    badge: 'border-slate-700 bg-slate-800/60',
+    text: 'text-slate-400',
+    accent: '#64748b',
+    fill: 'bg-slate-600',
+    glow: 'rgba(100, 116, 139, 0.25)',
+  },
+};
+
+/* ============================================================================
+ * 3. DOM REFERENCES
+ * ==========================================================================*/
+
+const $ = (id) => document.getElementById(id);
+
+const DOM = {
+  levelValue:    $('levelValue'),
+  statusBadge:   $('statusBadge'),
+  statusDot:     $('statusDot'),
+  statusPing:    $('statusPing'),
+  statusLabel:   $('statusLabel'),
+  heroGlow:      $('heroGlow'),
+  meterFill:     $('meterFill'),
+  batteryValue:  $('batteryValue'),
+  batteryBar:    $('batteryBar'),
+  batteryInline: $('batteryInline'),
+  lastUpdate:    $('lastUpdate'),
+  clock:         $('clock'),
+  connPill:      $('connPill'),
+  connDot:       $('connDot'),
+  connPing:      $('connPing'),
+  connText:      $('connText'),
+  statHigh:      $('statHigh'),
+  statLow:       $('statLow'),
+  statPoints:    $('statPoints'),
+  apiBaseLabel:  $('apiBaseLabel'),
+  chartCanvas:   $('trendChart'),
+};
+
+/* ============================================================================
+ * 4. APPLICATION STATE
+ * ==========================================================================*/
+
+const State = {
+  chart: null,
+  currentStatus: 'OFFLINE',
+  currentLevel: null,
+  isOnline: false,
+  pollTimer: null,
+  consecutiveFailures: 0,
+};
+
+/* ============================================================================
+ * 5. UTILITIES
+ * ==========================================================================*/
+
+/** Derive alert status from a raw water level, mirroring the backend logic. */
+function classifyStatus(levelCm) {
+  if (levelCm === null || levelCm === undefined || Number.isNaN(levelCm)) return 'OFFLINE';
+  if (levelCm > CONFIG.THRESHOLD_CRITICAL) return 'CRITICAL';
+  if (levelCm >= CONFIG.THRESHOLD_WARNING) return 'WARNING';
+  return 'SAFE';
+}
+
+/** Format an ISO timestamp as HH:MM:SS in local time. */
+function fmtTime(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  return d.toLocaleTimeString([], { hour12: false });
+}
+
+/** Format an ISO timestamp as "HH:MM:SS · DD MMM". */
+function fmtDateTime(iso) {
+  const d = new Date(iso);
+  return `${d.toLocaleTimeString([], { hour12: false })} · ${d.toLocaleDateString([], { day: '2-digit', month: 'short' })}`;
+}
+
+/** fetch() with an AbortController timeout. */
+async function fetchJSON(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ============================================================================
+ * 6. DOM RENDERERS
+ * ==========================================================================*/
+
+/**
+ * Paint the status badge, hero glow, and level meter for a given status.
+ * @param {'SAFE'|'WARNING'|'CRITICAL'|'OFFLINE'} status
+ */
+function renderStatus(status) {
+  const meta = STATUS_META[status] || STATUS_META.OFFLINE;
+  State.currentStatus = status;
+
+  // Badge container
+  DOM.statusBadge.className =
+    'flex items-center gap-2.5 rounded-full border px-4 py-2 transition-all duration-500 ' + meta.badge;
+
+  // Dot + ping
+  DOM.statusDot.className = `relative inline-flex h-2.5 w-2.5 rounded-full ${meta.dot} transition-colors duration-500`;
+  DOM.statusPing.className = `pulse-ring absolute inline-flex h-full w-full rounded-full ${meta.ping}`;
+  DOM.statusPing.style.display = status === 'OFFLINE' ? 'none' : 'block';
+
+  // Label
+  DOM.statusLabel.className = `text-sm font-bold uppercase tracking-[0.14em] ${meta.text}`;
+  DOM.statusLabel.textContent = meta.label;
+
+  // Hero glow
+  DOM.heroGlow.style.background = `radial-gradient(circle, ${meta.glow} 0%, transparent 70%)`;
+
+  // Level meter colour
+  DOM.meterFill.className = `meter-fill h-full rounded-full ${meta.fill}`;
+}
+
+/**
+ * Animate the hero number from its current value to a target value.
+ * @param {number} target
+ */
+function animateLevel(target) {
+  const from = State.currentLevel ?? 0;
+  const to = Number(target);
+  const duration = 650;
+  const start = performance.now();
+
+  function step(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+    const value = from + (to - from) * eased;
+    DOM.levelValue.textContent = value.toFixed(1);
+    if (t < 1) requestAnimationFrame(step);
+    else DOM.levelValue.textContent = to.toFixed(1);
+  }
+  requestAnimationFrame(step);
+  State.currentLevel = to;
+}
+
+/** Update the hero meter width from the current level. */
+function renderMeter(levelCm) {
+  const pct = Math.max(0, Math.min(100, (levelCm / CONFIG.METER_MAX_CM) * 100));
+  DOM.meterFill.style.width = `${pct}%`;
+}
+
+/** Update the battery card. */
+function renderBattery(voltage) {
+  if (voltage === null || voltage === undefined) return;
+  DOM.batteryValue.textContent = Number(voltage).toFixed(2);
+  DOM.batteryInline.textContent = `${Number(voltage).toFixed(2)} V`;
+
+  // Map 3.3 V (empty) → 4.2 V (full) onto 0–100 %
+  const pct = Math.max(0, Math.min(100, ((voltage - 3.3) / (4.2 - 3.3)) * 100));
+  DOM.batteryBar.style.width = `${pct}%`;
+  DOM.batteryBar.className =
+    'h-full rounded-full transition-all duration-700 ' +
+    (pct < 15 ? 'bg-rose-500' : pct < 35 ? 'bg-amber-500' : 'bg-emerald-500');
+}
+
+/** Update the connection indicator pill. */
+function renderConnection(online) {
+  State.isOnline = online;
+  if (online) {
+    DOM.connPill.className =
+      'flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-300 transition-colors duration-300';
+    DOM.connDot.className = 'relative inline-flex h-2 w-2 rounded-full bg-emerald-400';
+    DOM.connPing.className = 'absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping';
+    DOM.connText.textContent = 'Live';
+  } else {
+    DOM.connPill.className =
+      'flex items-center gap-2 rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-rose-300 transition-colors duration-300';
+    DOM.connDot.className = 'relative inline-flex h-2 w-2 rounded-full bg-rose-500';
+    DOM.connPing.className = 'absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-0';
+    DOM.connText.textContent = 'Offline';
+  }
+}
+
+/**
+ * Apply a full telemetry record to the dashboard.
+ * @param {{water_level_cm:number, battery_voltage:number, alert_status:string, created_at:string}} record
+ */
+function renderReading(record) {
+  const level = Number(record.water_level_cm);
+  const status = record.alert_status || classifyStatus(level);
+
+  animateLevel(level);
+  renderMeter(level);
+  renderStatus(status);
+  renderBattery(record.battery_voltage !== null ? Number(record.battery_voltage) : undefined);
+
+  DOM.lastUpdate.textContent = `Last reading ${fmtDateTime(record.created_at)}`;
+  DOM.levelValue.style.color = STATUS_META[status]?.accent || '#ffffff';
+}
+
+/* ============================================================================
+ * 7. CHART.JS — Custom Threshold Plugin
+ * ==========================================================================*/
+
+const thresholdPlugin = {
+  id: 'thresholdLines',
+  afterDatasetsDraw(chart, _args, opts) {
+    const lines = opts?.lines || [];
+    if (!lines.length) return;
+
+    const { ctx, chartArea, scales } = chart;
+    if (!chartArea) return;
+
+    ctx.save();
+    lines.forEach((line) => {
+      const y = scales.y.getPixelForValue(line.value);
+      if (y < chartArea.top || y > chartArea.bottom) return;
+
+      ctx.beginPath();
+      ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = line.color;
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.stroke();
+
+      // Small label on the right edge
+      ctx.setLineDash([]);
+      ctx.font = '600 10px JetBrains Mono, monospace';
+      ctx.fillStyle = line.color;
+      ctx.textAlign = 'right';
+      ctx.fillText(line.label, chartArea.right - 6, y - 5);
+    });
+    ctx.restore();
+  },
+};
+
+/** Instantiate the Chart.js line chart. */
+function initChart() {
+  const ctx = DOM.chartCanvas.getContext('2d');
+
+  // Vertical gradient fill under the line
+  const gradient = ctx.createLinearGradient(0, 0, 0, 360);
+  gradient.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+  gradient.addColorStop(0.6, 'rgba(56, 189, 248, 0.08)');
+  gradient.addColorStop(1, 'rgba(56, 189, 248, 0.00)');
+
+  State.chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Water Level',
+          data: [],
+          borderColor: '#38bdf8',
+          backgroundColor: gradient,
+          borderWidth: 2,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#38bdf8',
+          pointHoverBorderColor: '#05080f',
+          pointHoverBorderWidth: 2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 600, easing: 'easeOutQuart' },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        thresholdLines: {
+          lines: [
+            { value: CONFIG.THRESHOLD_WARNING, color: 'rgba(251, 191, 36, 0.55)', label: 'WARN 100' },
+            { value: CONFIG.THRESHOLD_CRITICAL, color: 'rgba(244, 63, 94, 0.65)', label: 'CRIT 150' },
+          ],
+        },
+        tooltip: {
+          backgroundColor: 'rgba(11, 18, 32, 0.96)',
+          borderColor: 'rgba(56, 189, 248, 0.35)',
+          borderWidth: 1,
+          padding: 12,
+          cornerRadius: 10,
+          displayColors: false,
+          titleFont: { family: 'Inter', size: 11, weight: '600' },
+          titleColor: '#94a3b8',
+          bodyFont: { family: 'JetBrains Mono', size: 14, weight: '700' },
+          bodyColor: '#e2e8f0',
+          callbacks: {
+            label: (c) => ` ${Number(c.parsed.y).toFixed(1)} cm`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(148, 163, 184, 0.06)', drawTicks: false },
+          border: { display: false },
+          ticks: {
+            color: '#64748b',
+            maxTicksLimit: 8,
+            maxRotation: 0,
+            font: { family: 'JetBrains Mono', size: 10 },
+          },
+        },
+        y: {
+          grid: { color: 'rgba(148, 163, 184, 0.06)', drawTicks: false },
+          border: { display: false },
+          grace: '15%',
+          ticks: {
+            color: '#64748b',
+            padding: 8,
+            font: { family: 'JetBrains Mono', size: 10 },
+            callback: (v) => `${v} cm`,
+          },
+        },
+      },
+    },
+    plugins: [thresholdPlugin],
+  });
+}
+
+/* ============================================================================
+ * 8. DATA FETCHING
+ * ==========================================================================*/
+
+/** GET /api/v1/water-level/latest */
+async function fetchLatest() {
+  const url = `${CONFIG.API_BASE}/api/v1/water-level/latest?device_id=${encodeURIComponent(CONFIG.DEVICE_ID)}`;
+  const json = await fetchJSON(url);
+  return json.data;
+}
+
+/** GET /api/v1/water-level/historical (bucketed server-side) */
+async function fetchHistorical(hours = 24) {
+  const url =
+    `${CONFIG.API_BASE}/api/v1/water-level/historical` +
+    `?device_id=${encodeURIComponent(CONFIG.DEVICE_ID)}&hours=${hours}&bucket=300`;
+  const json = await fetchJSON(url);
+  return json.data || [];
+}
+
+/* ============================================================================
+ * 9. CHART DATA HANDLING
+ * ==========================================================================*/
+
+/** Replace the entire chart dataset (initial load). */
+function loadChartData(rows) {
+  if (!State.chart) return;
+
+  const labels = [];
+  const values = [];
+
+  rows.forEach((row) => {
+    labels.push(fmtTime(row.bucket_time));
+    values.push(Number(row.water_level_cm));
+  });
+
+  State.chart.data.labels = labels;
+  State.chart.data.datasets[0].data = values;
+  State.chart.update('none');
+
+  // Session statistics
+  if (values.length) {
+    DOM.statHigh.textContent = Math.max(...values).toFixed(1);
+    DOM.statLow.textContent = Math.min(...values).toFixed(1);
+    DOM.statPoints.textContent = rows.length.toLocaleString();
+  } else {
+    DOM.statHigh.textContent = '--';
+    DOM.statLow.textContent = '--';
+    DOM.statPoints.textContent = '0';
+  }
+}
+
+/** Append a single live point to the chart without a full reload. */
+function appendChartPoint(level, timestampIso) {
+  if (!State.chart) return;
+
+  const chart = State.chart;
+  chart.data.labels.push(fmtTime(timestampIso));
+  chart.data.datasets[0].data.push(Number(level));
+
+  // Trim the oldest points so the chart stays performant
+  while (chart.data.labels.length > CONFIG.MAX_CHART_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+
+  chart.update('none'); // 'none' keeps the smooth animation off for live appends
+
+  // Keep the 24h high/low counters reasonably fresh
+  const values = chart.data.datasets[0].data;
+  if (values.length) {
+    DOM.statHigh.textContent = Math.max(...values).toFixed(1);
+    DOM.statLow.textContent = Math.min(...values).toFixed(1);
+    DOM.statPoints.textContent = values.length.toLocaleString();
+  }
+}
+
+/* ============================================================================
+ * 10. POLLING ENGINE
+ * ==========================================================================*/
+
+let lastSeenReadingId = null;
+
+/**
+ * One polling tick: fetch latest, update DOM, append to chart.
+ * Uses a recursive setTimeout loop (safer than setInterval — no drift/overlap).
+ */
+async function pollTick() {
+  try {
+    const record = await fetchLatest();
+
+    // Only re-render + append when the record is genuinely new
+    const isNew = record.id !== lastSeenReadingId;
+    if (isNew) {
+      lastSeenReadingId = record.id;
+      renderReading(record);
+      appendChartPoint(record.water_level_cm, record.created_at);
+    }
+
+    State.consecutiveFailures = 0;
+    renderConnection(true);
+  } catch (err) {
+    State.consecutiveFailures += 1;
+    console.warn('[poll] failed:', err.message);
+
+    // Only flip to "Offline" after 2 consecutive failures (avoids UI flicker)
+    if (State.consecutiveFailures >= 2) {
+      renderConnection(false);
+      renderStatus('OFFLINE');
+      DOM.lastUpdate.textContent = 'Connection lost — retrying…';
+    }
+  } finally {
+    clearTimeout(State.pollTimer);
+    State.pollTimer = setTimeout(pollTick, CONFIG.POLL_INTERVAL_MS);
+  }
+}
+
+/* ============================================================================
+ * 11. BOOTSTRAP
+ * ==========================================================================*/
+
+/** Update the live wall clock in the header every second. */
+function startClock() {
+  const tick = () => { DOM.clock.textContent = fmtTime(); };
+  tick();
+  setInterval(tick, 1000);
+}
+
+/** Initial bootstrap: build the chart, hydrate from history, then poll. */
+async function boot() {
+  DOM.apiBaseLabel.textContent = CONFIG.API_BASE;
+  startClock();
+  initChart();
+
+  // Parallel initial fetch — latest reading + 24h history
+  const [latestResult, historicalResult] = await Promise.allSettled([
+    fetchLatest(),
+    fetchHistorical(24),
+  ]);
+
+  if (historicalResult.status === 'fulfilled') {
+    loadChartData(historicalResult.value);
+  } else {
+    console.warn('[boot] historical fetch failed:', historicalResult.reason?.message);
+  }
+
+  if (latestResult.status === 'fulfilled' && latestResult.value) {
+    lastSeenReadingId = latestResult.value.id;
+    renderReading(latestResult.value);
+    renderConnection(true);
+  } else {
+    renderConnection(false);
+    renderStatus('OFFLINE');
+    DOM.lastUpdate.textContent = 'No telemetry available yet';
+    console.warn('[boot] latest fetch failed:', latestResult.reason?.message);
+  }
+
+  // Kick off the polling loop
+  clearTimeout(State.pollTimer);
+  State.pollTimer = setTimeout(pollTick, CONFIG.POLL_INTERVAL_MS);
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+
+// Expose a manual refresh helper in the console: window.EWS.refresh()
+window.EWS = {
+  refresh: async () => {
+    const rows = await fetchHistorical(24);
+    loadChartData(rows);
+    const latest = await fetchLatest();
+    renderReading(latest);
+  },
+  setApiBase: (url) => {
+    localStorage.setItem('EWS_API_BASE', url);
+    location.reload();
+  },
+};
+</script>
+</body>
+</html>
